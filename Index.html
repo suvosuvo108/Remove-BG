@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Free AI Background Remover Tool</title>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; text-align: center; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .upload-box { border: 2px dashed #007bff; padding: 30px; border-radius: 10px; cursor: pointer; background: #f8fbff; transition: 0.3s; }
+        .upload-box:hover { background: #eef6ff; border-color: #0056b3; }
+        button { background: #007bff; color: white; border: none; padding: 12px 25px; font-size: 16px; border-radius: 5px; cursor: pointer; margin: 10px; transition: 0.3s; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #status { margin: 15px 0; font-weight: bold; color: #555; }
+        .preview-area { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin-top: 20px; }
+        .preview-item { border: 1px solid #ddd; padding: 5px; border-radius: 5px; background: #fff; }
+        .preview-item img { max-width: 150px; display: block; }
+        .preview-item span { display: block; font-size: 12px; color: #777; margin-top: 5px; }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>✂️ Magic Background Remover</h1>
+    <p>Supports: JPG, PNG, and <b>PDF Files</b> (100% Free)</p>
+
+    <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+        <p>📂 Click here to Upload Image or PDF</p>
+        <input type="file" id="fileInput" accept="image/*,application/pdf" style="display:none">
+    </div>
+
+    <div id="status"></div>
+
+    <button id="removeBtn" style="display:none;">✨ Remove Background</button>
+    <button id="downloadBtn" style="display:none;">⬇️ Download Result</button>
+
+    <div class="preview-area" id="previewContainer"></div>
+</div>
+
+<script type="module">
+    import imglyRemoveBackground from "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.0.3/+esm";
+
+    const fileInput = document.getElementById('fileInput');
+    const statusDiv = document.getElementById('status');
+    const previewContainer = document.getElementById('previewContainer');
+    const removeBtn = document.getElementById('removeBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let rawImages = [];
+    let processedImages = [];
+
+    // 1. Handle File Upload
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Reset UI
+        rawImages = [];
+        processedImages = [];
+        previewContainer.innerHTML = '';
+        removeBtn.style.display = 'none';
+        downloadBtn.style.display = 'none';
+        statusDiv.innerText = "⏳ Loading file...";
+
+        try {
+            if (file.type === 'application/pdf') {
+                await processPDF(file);
+            } else {
+                await processImage(file);
+            }
+            statusDiv.innerText = `✅ Loaded ${rawImages.length} page(s)/image. Ready to process.`;
+            removeBtn.style.display = 'inline-block';
+        } catch (err) {
+            statusDiv.innerText = "❌ Error: " + err.message;
+        }
+    });
+
+    // Helper: Convert PDF to Images
+    async function processPDF(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+            statusDiv.innerText = `⏳ Reading PDF Page ${i}/${pdf.numPages}...`;
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+            const imgData = canvas.toDataURL('image/png');
+            rawImages.push(imgData);
+            addPreview(imgData, `Page ${i}`);
+        }
+    }
+
+    // Helper: Handle Single Image
+    async function processImage(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                rawImages.push(e.target.result);
+                addPreview(e.target.result, "Original");
+                resolve();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // Helper: Show Preview
+    function addPreview(src, label) {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        div.innerHTML = `<img src="${src}"><span>${label}</span>`;
+        previewContainer.appendChild(div);
+    }
+
+    // 2. Remove Background Logic
+    removeBtn.addEventListener('click', async () => {
+        removeBtn.disabled = true;
+        statusDiv.innerText = "🚀 Starting AI Engine (First time takes 20s)...";
+        
+        try {
+            const newPreviews = [];
+            
+            for (let i = 0; i < rawImages.length; i++) {
+                statusDiv.innerText = `🔄 Processing item ${i + 1} of ${rawImages.length}...`;
+                
+                // The AI Magic
+                const blob = await imglyRemoveBackground(rawImages[i]);
+                const url = URL.createObjectURL(blob);
+                processedImages.push(url);
+                newPreviews.push(url);
+            }
+
+            // Update Preview with Processed Images
+            previewContainer.innerHTML = '';
+            newPreviews.forEach((url, idx) => addPreview(url, "Removed BG ✅"));
+            
+            statusDiv.innerText = "🎉 Done! You can download now.";
+            removeBtn.style.display = 'none';
+            downloadBtn.style.display = 'inline-block';
+
+        } catch (err) {
+            console.error(err);
+            statusDiv.innerText = "❌ AI Error: " + err.message;
+            alert("Something went wrong. Check console.");
+        }
+    });
+
+    // 3. Download Logic
+    downloadBtn.addEventListener('click', () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        processedImages.forEach((imgUrl, i) => {
+            if (i > 0) doc.addPage();
+            const imgProps = doc.getImageProperties(imgUrl);
+            const pdfWidth = doc.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            doc.addImage(imgUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        });
+
+        doc.save("bg-removed-result.pdf");
+    });
+
+</script>
+</body>
+</html>
+
